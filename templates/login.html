@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Login · Local File Uploader</title>
+  <style>
+    :root{color-scheme:dark;--bg:#0b1020;--panel:#131b2e;--text:#edf2ff;--muted:#9aa9c7;--accent:#72e0c1;--line:#293754;--danger:#ff7d91}
+    *{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:20px;background:radial-gradient(circle at top right,#1b3151 0,transparent 36%),var(--bg);color:var(--text);font:15px/1.5 system-ui,-apple-system,Segoe UI,sans-serif}
+    .panel{width:min(420px,100%);padding:28px;background:rgba(19,27,46,.96);border:1px solid var(--line);border-radius:20px;box-shadow:0 18px 55px #0003}h1{margin:0 0 6px;font-size:29px;letter-spacing:-.04em}.muted{color:var(--muted);margin-bottom:24px}label{display:block;margin:15px 0 6px;font-weight:650}input{width:100%;padding:12px 13px;border-radius:10px;border:1px solid var(--line);background:#0b1222;color:var(--text);font:inherit}button{width:100%;margin-top:22px;padding:12px;border:0;border-radius:10px;background:var(--accent);color:#08201c;font-weight:800;font-size:15px;cursor:pointer}.error{padding:10px 12px;background:#432332;border-radius:9px;color:#ffc4ce}
+  </style>
+</head>
+<body><main class="panel">
+  <h1>Local File Uploader</h1><div class="muted">Sign in to upload, download, and manage files.</div>
+  {% if error %}<div class="error" role="alert">{{ error }}</div>{% endif %}
+  <form method="post" action="/login" autocomplete="on">
+    <label for="username">Username</label><input id="username" name="username" autocomplete="username" required autofocus>
+    <label for="password">Password</label><input id="password" name="password" type="password" autocomplete="current-password" required>
+    <button type="submit">Log in</button>
+  </form>
+</main></body></html>

@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Local File Uploader</title>
+    <style>
+        body {
+            font-family: Arial;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin-top: 50px;
+        }
+        form {
+            border: 2px solid #ccc;
+            padding: 30px;
+            border-radius: 10px;
+            text-align: center;
+            width: 400px;
+        }
+        input[type="file"] {
+            margin-bottom: 15px;
+        }
+        button {
+            padding: 10px 20px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        .progress-container {
+            width: 100%;
+            background: #eee;
+            border-radius: 10px;
+            margin-top: 20px;
+            height: 20px;
+            overflow: hidden;
+        }
+        .progress-bar {
+            height: 100%;
+            width: 0%;
+            background: #007bff;
+            transition: width 0.2s;
+        }
+        #status {
+            margin-top: 10px;
+            font-weight: bold;
+        }
+        .file-list {
+            margin-top: 40px;
+            width: 400px;
+            border: 1px solid #ccc;
+            border-radius: 10px;
+            padding: 20px;
+        }
+        .file-list h3 {
+            margin-bottom: 10px;
+            text-align: center;
+        }
+        .file-list ul {
+            list-style: none;
+            padding: 0;
+        }
+        .file-list li {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: #f9f9f9;
+            margin-bottom: 8px;
+            padding: 8px 10px;
+            border-radius: 5px;
+        }
+        .file-list a {
+            text-decoration: none;
+            color: #007bff;
+        }
+        .file-list a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <h2>Upload a File</h2>
+
+    <form id="uploadForm">
+        <input type="file" name="file" id="fileInput" required>
+        <br>
+        <button type="submit">Upload</button>
+
+        <div class="progress-container">
+            <div class="progress-bar" id="progressBar"></div>
+        </div>
+        <div id="status"></div>
+    </form>
+
+    <div class="file-list" id="fileList">
+        <h3>Uploaded Files</h3>
+        <ul id="fileListContainer"></ul>
+    </div>
+
+    <script>
+        const form = document.getElementById('uploadForm');
+        const progressBar = document.getElementById('progressBar');
+        const statusText = document.getElementById('status');
+        const fileListContainer = document.getElementById('fileListContainer');
+
+        // Load existing files on page load
+        window.onload = fetchFiles;
+
+        function fetchFiles() {
+            fetch('/files')
+                .then(response => response.json())
+                .then(files => {
+                    fileListContainer.innerHTML = '';
+                    if (files.length === 0) {
+                        fileListContainer.innerHTML = '<li>No files uploaded yet.</li>';
+                    } else {
+                        files.forEach(filename => {
+                            const li = document.createElement('li');
+                            li.innerHTML = `
+                                <span>${filename}</span>
+                                <a href="/download/${encodeURIComponent(filename)}" download>Download</a>
+                            `;
+                            fileListContainer.appendChild(li);
+                        });
+                    }
+                });
+        }
+
+        form.addEventListener('submit', function (e) {
+            e.preventDefault();
+
+            const fileInput = document.getElementById('fileInput');
+            const file = fileInput.files[0];
+            if (!file) return;
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', '/upload', true);
+
+            xhr.upload.onprogress = function (event) {
+                if (event.lengthComputable) {
+                    const percent = (event.loaded / event.total) * 100;
+                    progressBar.style.width = percent + '%';
+                    statusText.textContent = `Uploading: ${Math.floor(percent)}%`;
+                }
+            };
+
+            xhr.onload = function () {
+                if (xhr.status === 200) {
+                    statusText.textContent = 'Upload complete!';
+                    progressBar.style.width = '100%';
+                    fileInput.value = '';
+                    fetchFiles(); // refresh file list
+                } else {
+                    statusText.textContent = 'Upload failed!';
+                }
+            };
+
+            xhr.onerror = function () {
+                statusText.textContent = 'Upload error!';
+            };
+
+            xhr.send(formData);
+        });
+    </script>
+</body>
+</html>

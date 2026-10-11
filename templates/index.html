@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Local File Uploader</title>
+  <style>
+    :root { color-scheme: dark; --bg:#0b1020; --panel:#131b2e; --panel2:#1a2540; --text:#edf2ff; --muted:#9aa9c7; --accent:#72e0c1; --danger:#ff7d91; --line:#293754; }
+    * { box-sizing:border-box; }
+    body { margin:0; min-height:100vh; background:radial-gradient(circle at top right,#1b3151 0,transparent 36%),var(--bg); color:var(--text); font:15px/1.5 system-ui,-apple-system,Segoe UI,sans-serif; }
+    main { width:min(1050px,calc(100% - 32px)); margin:42px auto; }
+    header { margin-bottom:24px; }
+    h1 { margin:0 0 8px; font-size:clamp(27px,4vw,40px); letter-spacing:-.04em; }
+    .subtitle,.muted { color:var(--muted); }
+    .panel { background:rgba(19,27,46,.94); border:1px solid var(--line); border-radius:20px; padding:22px; margin:18px 0; box-shadow:0 18px 55px #0002; }
+    .dropzone { border:2px dashed #3d5579; border-radius:16px; padding:32px 18px; text-align:center; background:#111a2d; transition:.2s; }
+    .dropzone.drag { border-color:var(--accent); background:#132b32; }
+    .dropzone strong { display:block; font-size:18px; margin-bottom:5px; }
+    button,.file-button { border:0; border-radius:10px; padding:10px 15px; background:var(--accent); color:#08201c; font-weight:750; cursor:pointer; font-size:14px; }
+    button:disabled { opacity:.45; cursor:not-allowed; }
+    button.secondary { background:var(--panel2); color:var(--text); border:1px solid var(--line); }
+    button.danger { background:#432332; color:#ffc4ce; }
+    input[type=file] { display:none; }
+    .actions { display:flex; gap:10px; justify-content:center; flex-wrap:wrap; margin-top:16px; }
+    .queue-head,.section-head { display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; }
+    h2 { font-size:19px; margin:0 0 15px; }
+    .queue-item,.stored-item { border:1px solid var(--line); background:#10182a; border-radius:13px; padding:14px; margin-top:10px; }
+    .item-top { display:flex; justify-content:space-between; gap:12px; align-items:flex-start; }
+    .filename { font-weight:700; overflow-wrap:anywhere; }
+    .meta { color:var(--muted); font-size:13px; margin-top:3px; }
+    .status { font-size:12px; color:var(--muted); white-space:nowrap; }
+    .status.done { color:var(--accent); }
+    .status.error { color:var(--danger); }
+    .track { width:100%; height:8px; border-radius:99px; background:#27334b; overflow:hidden; margin-top:12px; }
+    .bar { height:100%; width:0; background:linear-gradient(90deg,#54b8ff,var(--accent)); transition:width .12s linear; }
+    .item-bottom { display:flex; justify-content:space-between; gap:10px; margin-top:7px; color:var(--muted); font-size:12px; }
+    .stored-list { display:grid; grid-template-columns:repeat(auto-fit,minmax(250px,1fr)); gap:10px; }
+    .stored-item { margin:0; min-width:0; }
+    .stored-actions { display:flex; gap:8px; margin-top:12px; }
+    .stored-actions button,.stored-actions a { flex:1; text-align:center; text-decoration:none; }
+    .empty { color:var(--muted); padding:14px 0; }
+    #notice { margin-top:12px; color:var(--muted); min-height:22px; }
+    .pill { display:inline-block; background:#20324a; color:#c8d8f5; border-radius:999px; padding:4px 9px; font-size:12px; }
+    @media(max-width:560px) { main{margin:22px auto}.panel{padding:15px}.item-top{display:block}.status{display:block;margin-top:5px} }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Local File Uploader</h1>
+    <div class="queue-head">
+      <div class="subtitle">Send files to this computer over your local network. Uploads are processed one at a time.</div>
+      <form action="/logout" method="post"><button class="secondary" type="submit">Log out</button></form>
+    </div>
+  </header>
+
+  <section class="panel">
+    <div id="dropzone" class="dropzone">
+      <strong>Drop files here</strong>
+      <div class="muted">Choose multiple files; they will be uploaded sequentially, not simultaneously.</div>
+      <div class="actions">
+        <label class="file-button" for="fileInput">Choose files</label>
+        <input id="fileInput" type="file" multiple>
+        <button id="startBtn">Start queue</button>
+        <button id="clearBtn" class="secondary">Clear pending</button>
+      </div>
+    </div>
+    <div id="notice" role="status"></div>
+  </section>
+
+  <section class="panel">
+    <div class="queue-head">
+      <h2>Upload queue</h2>
+      <span id="queueSummary" class="pill">0 files</span>
+    </div>
+    <div id="queue"><div class="empty">No files queued yet.</div></div>
+  </section>
+
+  <section class="panel">
+    <div class="section-head">
+      <h2>Uploaded files</h2>
+      <button id="refreshBtn" class="secondary">Refresh list</button>
+    </div>
+    <div id="storedFiles" class="stored-list"><div class="empty">Loading files…</div></div>
+  </section>
+</main>
+
+<script>
+const fileInput = document.getElementById('fileInput');
+const dropzone = document.getElementById('dropzone');
+const queueElement = document.getElementById('queue');
+const storedElement = document.getElementById('storedFiles');
+const notice = document.getElementById('notice');
+const startBtn = document.getElementById('startBtn');
+const clearBtn = document.getElementById('clearBtn');
+const queueSummary = document.getElementById('queueSummary');
+
+let queue = [];
+let running = false;
+let nextId = 1;
+
+function formatBytes(bytes) {
+  if (bytes === 0) return '0 B';
+  if (!Number.isFinite(bytes)) return '—';
+  const units = ['B','KB','MB','GB','TB'];
+  const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+  return `${(bytes / Math.pow(1024,index)).toFixed(index ? 1 : 0)} ${units[index]}`;
+}
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function setNotice(message) { notice.textContent = message || ''; }
+
+function addFiles(files) {
+  const additions = Array.from(files).map(file => ({
+    id: nextId++, file, name: file.name, size: file.size, progress: 0, status: 'Pending', state: 'pending'
+  }));
+  queue.push(...additions);
+  renderQueue();
+  if (additions.length) setNotice(`${additions.length} file(s) added to the queue.`);
+  fileInput.value = '';
+}
+fileInput.addEventListener('change', () => addFiles(fileInput.files));
+dropzone.addEventListener('dragover', event => { event.preventDefault(); dropzone.classList.add('drag'); });
+dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag'));
+dropzone.addEventListener('drop', event => {
+  event.preventDefault();
+  dropzone.classList.remove('drag');
+  if (event.dataTransfer.files.length) addFiles(event.dataTransfer.files);
+});
+
+function renderQueue() {
+  const completed = queue.filter(item => item.state === 'done').length;
+  const errors = queue.filter(item => item.state === 'error').length;
+  queueSummary.textContent = `${queue.length} files · ${completed} done · ${errors} failed`;
+  startBtn.disabled = running || !queue.some(item => item.state === 'pending' || item.state === 'error');
+  clearBtn.disabled = running || !queue.some(item => item.state === 'pending' || item.state === 'error');
+  if (!queue.length) {
+    queueElement.innerHTML = '<div class="empty">No files queued yet.</div>';
+    return;
+  }
+  queueElement.innerHTML = queue.map(item => `
+    <div class="queue-item">
+      <div class="item-top">
+        <div><div class="filename">${escapeHtml(item.name)}</div><div class="meta">${formatBytes(item.size)}</div></div>
+        <span class="status ${item.state === 'done' ? 'done' : item.state === 'error' ? 'error' : ''}">${escapeHtml(item.status)}</span>
+      </div>
+      <div class="track"><div class="bar" style="width:${item.progress}%"></div></div>
+      <div class="item-bottom"><span>${item.progress}%</span><span>${item.state === 'uploading' ? 'Uploading now' : item.state === 'done' ? 'Upload complete' : item.state === 'error' ? escapeHtml(item.error || 'Upload failed') : 'Waiting in queue'}</span></div>
+    </div>`).join('');
+}
+
+function uploadOne(item) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    const form = new FormData();
+    form.append('file', item.file, item.name);
+    xhr.open('POST', '/api/upload');
+    xhr.upload.addEventListener('progress', event => {
+      if (event.lengthComputable) {
+        item.progress = Math.min(99, Math.round(event.loaded / event.total * 100));
+        renderQueue();
+      }
+    });
+    xhr.addEventListener('load', () => {
+      let payload = {};
+      try { payload = JSON.parse(xhr.responseText); } catch (_) {}
+      if (xhr.status >= 200 && xhr.status < 300) {
+        item.progress = 100;
+        item.state = 'done';
+        item.status = 'Completed';
+        resolve(payload);
+      } else {
+        item.state = 'error';
+        item.status = 'Failed';
+        item.error = payload.error || `HTTP ${xhr.status}`;
+        reject(new Error(item.error));
+      }
+      renderQueue();
+    });
+    xhr.addEventListener('error', () => {
+      item.state = 'error';
+      item.status = 'Failed';
+      item.error = 'Network error';
+      renderQueue();
+      reject(new Error(item.error));
+    });
+    xhr.addEventListener('abort', () => {
+      item.state = 'error';
+      item.status = 'Cancelled';
+      item.error = 'Upload cancelled';
+      renderQueue();
+      reject(new Error(item.error));
+    });
+    item.state = 'uploading';
+    item.status = 'Uploading';
+    item.progress = 0;
+    renderQueue();
+    xhr.send(form);
+  });
+}
+
+async function startQueue() {
+  if (running) return;
+  running = true;
+  startBtn.disabled = true;
+  clearBtn.disabled = true;
+  let uploaded = 0;
+  let failed = 0;
+  try {
+    for (const item of queue) {
+      if (item.state !== 'pending' && item.state !== 'error') continue;
+      item.state = 'pending';
+      item.status = 'Waiting';
+      item.error = '';
+      renderQueue();
+      try {
+        await uploadOne(item);
+        uploaded++;
+      } catch (_) {
+        failed++;
+      }
+    }
+    setNotice(`Queue finished. ${uploaded} uploaded, ${failed} failed.`);
+  } finally {
+    running = false;
+    renderQueue();
+    await refreshFiles();
+  }
+}
+startBtn.addEventListener('click', startQueue);
+clearBtn.addEventListener('click', () => {
+  if (running) return;
+  queue = queue.filter(item => item.state !== 'pending' && item.state !== 'error');
+  renderQueue();
+  setNotice('Pending and failed items cleared.');
+});
+
+async function refreshFiles() {
+  try {
+    const response = await fetch('/api/files');
+    if (!response.ok) throw new Error('Could not load file list.');
+    const files = await response.json();
+    if (!files.length) {
+      storedElement.innerHTML = '<div class="empty">No uploaded files yet.</div>';
+      return;
+    }
+    storedElement.innerHTML = files.map(file => `
+      <article class="stored-item">
+        <div class="filename">${escapeHtml(file.name)}</div>
+        <div class="meta">${formatBytes(file.size)}</div>
+        <div class="meta">${escapeHtml(new Date(file.modified).toLocaleString())}</div>
+        <div class="stored-actions">
+          <a class="file-button" href="/api/download/${encodeURIComponent(file.name)}">Download</a>
+          <button class="danger" data-delete="${escapeHtml(file.name)}">Delete</button>
+        </div>
+      </article>`).join('');
+  } catch (error) {
+    storedElement.innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`;
+  }
+}
+storedElement.addEventListener('click', async event => {
+  const button = event.target.closest('button[data-delete]');
+  if (!button) return;
+  const filename = button.dataset.delete;
+  if (!confirm(`Delete "${filename}"? This cannot be undone.`)) return;
+  button.disabled = true;
+  try {
+    const response = await fetch(`/api/delete/${encodeURIComponent(filename)}`, {method:'DELETE'});
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || 'Delete failed.');
+    setNotice(`Deleted ${filename}.`);
+    await refreshFiles();
+  } catch (error) {
+    setNotice(error.message);
+    button.disabled = false;
+  }
+});
+document.getElementById('refreshBtn').addEventListener('click', refreshFiles);
+renderQueue();
+refreshFiles();
+</script>
+</body>
+</html>
